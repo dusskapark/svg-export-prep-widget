@@ -1,7 +1,8 @@
 {
-  "name": "figma-widget-vite-react-typescript-template",
+  "name": "svg-export-prep-widget",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "A Figma widget that scans ComponentSets and creates organized instances for easy SVG export",
   "type": "module",
   "scripts": {
     "dev": "vite build --watch -c vite.config.ts",

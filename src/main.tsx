@@ -1,29 +1,385 @@
-// This is a counter widget with buttons to increment and decrement the number.
+// SVG Export Prep Widget
+// Scans ComponentSets in the parent container and creates organized instances for easy SVG export
 
 const { widget } = figma;
-const { AutoLayout, SVG, Text, usePropertyMenu, useSyncedState } = widget;
+const { AutoLayout, Text, Input, usePropertyMenu, useSyncedState } = widget;
+
+interface ComponentSetInfo {
+  id: string;
+  name: string;
+  childrenCount: number;
+}
+
+interface ComponentInfo {
+  componentSetName: string;
+  componentName: string;
+  variantProperties: Record<string, string>;
+  nodeId: string;
+}
+
+// Extract all variant properties from component
+function extractVariantProperties(component: ComponentNode): Record<string, string> {
+  const properties: Record<string, string> = {};
+  
+  // Get all variant properties
+  if ('variantProperties' in component && component.variantProperties) {
+    for (const [key, value] of Object.entries(component.variantProperties)) {
+      if (typeof value === 'string') {
+        properties[key] = value.toLowerCase();
+      }
+    }
+  }
+  
+  // If no variant properties found, try to extract from name as fallback
+  if (Object.keys(properties).length === 0) {
+    const name = component.name.toLowerCase();
+    const iconTypes = ['coloured', 'filled', 'outlined', 'thinned', 'universal'];
+    
+    for (const type of iconTypes) {
+      if (name.includes(type)) {
+        properties['type'] = type;
+        break;
+      }
+    }
+    
+    // If still no properties, set default
+    if (Object.keys(properties).length === 0) {
+      properties['type'] = 'default';
+    }
+  }
+  
+  return properties;
+}
+
+// Find ComponentSet nodes in parent container
+function findComponentSetsInParent(): { componentSets: ComponentSetInfo[], components: ComponentInfo[] } {
+  const componentSets: ComponentSetInfo[] = [];
+  const components: ComponentInfo[] = [];
+  
+  // Get all widgets on current page
+  const widgets = figma.currentPage.findAll(node => node.type === 'WIDGET');
+  
+  if (widgets.length === 0) {
+    return { componentSets, components };
+  }
+  
+  // Get the first widget's parent
+  const firstWidget = widgets[0];
+  const parentNode = firstWidget.parent;
+  
+  if (!parentNode || !('children' in parentNode)) {
+    return { componentSets, components };
+  }
+  
+  // Scan only the parent container's direct children
+  for (const child of parentNode.children) {
+    if (child.type === 'COMPONENT_SET') {
+      const componentSetName = child.name;
+      
+      componentSets.push({
+        id: child.id,
+        name: componentSetName,
+        childrenCount: child.children.length
+      });
+      
+      // Extract components from this ComponentSet
+      for (const component of child.children) {
+        if (component.type === 'COMPONENT') {
+          const variantProperties = extractVariantProperties(component);
+          
+          components.push({
+            componentSetName,
+            componentName: component.name,
+            variantProperties,
+            nodeId: component.id
+          });
+        }
+      }
+    }
+  }
+  
+  return { componentSets, components };
+}
+
+// Find the rightmost position of all nodes on the page
+function findRightmostPosition(): number {
+  const allNodes = figma.currentPage.findAll();
+  let rightmostX = 0;
+  
+  for (const node of allNodes) {
+    if ('absoluteBoundingBox' in node && node.absoluteBoundingBox) {
+      const nodeRight = node.absoluteBoundingBox.x + node.absoluteBoundingBox.width;
+      if (nodeRight > rightmostX) {
+        rightmostX = nodeRight;
+      }
+    }
+  }
+  
+  return rightmostX + 100; // Add 100px margin
+}
+
+// Create or find exportSVG frame
+function createOrFindExportFrame(): Promise<FrameNode> {
+  return new Promise((resolve) => {
+    // Check if exportSVG frame already exists and delete it
+    const existingFrame = figma.currentPage.findOne(node => 
+      node.type === 'FRAME' && node.name === 'exportSVG'
+    ) as FrameNode;
+    
+    if (existingFrame) {
+      existingFrame.remove();
+      console.log('🗑️ Removed existing exportSVG frame');
+    }
+    
+    // Create new exportSVG frame
+    const exportFrame = figma.createFrame();
+    exportFrame.name = 'exportSVG';
+    
+    // Set up auto-layout with wrap
+    exportFrame.layoutMode = 'HORIZONTAL';
+    exportFrame.layoutWrap = 'WRAP';
+    exportFrame.primaryAxisSizingMode = 'FIXED';
+    exportFrame.counterAxisSizingMode = 'AUTO'; // This makes height HUG content
+    
+    // Set sizing
+    exportFrame.layoutSizingVertical = 'HUG'; // Vertical HUG
+    exportFrame.layoutSizingHorizontal = 'FIXED'; // Horizontal FIXED
+    
+    // Set spacing
+    exportFrame.itemSpacing = 16; // Horizontal gap between instances
+    exportFrame.counterAxisSpacing = 16; // Vertical gap between wrapped rows
+    
+    // Set padding
+    exportFrame.paddingTop = 20;
+    exportFrame.paddingBottom = 20;
+    exportFrame.paddingLeft = 20;
+    exportFrame.paddingRight = 20;
+    
+    // Set frame size and position - position to the right of all content
+    const rightmostX = findRightmostPosition();
+    exportFrame.resize(800, 100); // Initial size, height will grow with content
+    exportFrame.x = rightmostX;
+    exportFrame.y = 100;
+    
+    // Set background
+    exportFrame.fills = [{
+      type: 'SOLID',
+      color: { r: 0.98, g: 0.98, b: 0.98 }, // Light gray background
+      opacity: 1
+    }];
+    
+    // Add stroke
+    exportFrame.strokes = [{
+      type: 'SOLID',
+      color: { r: 0.8, g: 0.8, b: 0.8 }
+    }];
+    exportFrame.strokeWeight = 1;
+    
+    figma.currentPage.appendChild(exportFrame);
+    
+    console.log(`📍 Created exportSVG frame at x: ${rightmostX}`);
+    
+    resolve(exportFrame);
+  });
+}
+
+// Create instances from components
+function createInstancesFromComponents(components: ComponentInfo[], namingPattern: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    createOrFindExportFrame()
+      .then((exportFrame) => {
+        let createdCount = 0;
+        const promises: Promise<void>[] = [];
+        
+        for (const component of components) {
+          const promise = figma.getNodeByIdAsync(component.nodeId)
+            .then((componentNode) => {
+              if (componentNode && componentNode.type === 'COMPONENT') {
+                // Create instance
+                const instance = (componentNode as ComponentNode).createInstance();
+                
+                // Set instance name using naming pattern
+                instance.name = generateInstanceName(component, namingPattern);
+                
+                // Add instance to export frame
+                exportFrame.appendChild(instance);
+                
+                createdCount++;
+                
+                console.log(`✅ Created instance: ${instance.name}`);
+              }
+            })
+            .catch((error) => {
+              console.error(`❌ Failed to create instance for ${component.componentSetName}:`, error);
+            });
+          
+          promises.push(promise);
+        }
+        
+        Promise.all(promises)
+          .then(() => {
+            if (createdCount > 0) {
+              // Select the export frame to show the result
+              figma.currentPage.selection = [exportFrame];
+              figma.viewport.scrollAndZoomIntoView([exportFrame]);
+              
+              figma.notify(`✅ Created ${createdCount} instances in exportSVG frame`);
+            } else {
+              figma.notify('❌ No instances were created');
+            }
+            resolve();
+          })
+          .catch(reject);
+      })
+      .catch(reject);
+  });
+}
+
+// Generate instance name based on naming pattern
+function generateInstanceName(component: ComponentInfo, namingPattern: string): string {
+  let instanceName = namingPattern;
+  
+  // Replace {componentSetName} placeholder
+  instanceName = instanceName.replace(/{componentSetName}/g, component.componentSetName);
+  
+  // Replace variant property placeholders like {type}, {size}, etc.
+  for (const [key, value] of Object.entries(component.variantProperties)) {
+    const placeholder = `{${key}}`;
+    instanceName = instanceName.replace(new RegExp(placeholder, 'g'), value);
+  }
+  
+  // Replace {allVariants} with all variant properties
+  const allVariants = Object.entries(component.variantProperties)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(',');
+  instanceName = instanceName.replace(/{allVariants}/g, allVariants);
+  
+  return instanceName;
+}
 
 // eslint-disable-next-line react-refresh/only-export-components,@typescript-eslint/explicit-function-return-type
 export const Widget = () => {
-  const [count, setCount] = useSyncedState('count', 0);
+  const [componentSets, setComponentSets] = useSyncedState<ComponentSetInfo[]>('componentSets', []);
+  const [components, setComponents] = useSyncedState<ComponentInfo[]>('components', []);
+  const [isScanning, setIsScanning] = useSyncedState<boolean>('isScanning', false);
+  const [containerName, setContainerName] = useSyncedState<string>('containerName', '');
+  const [namingPattern, setNamingPattern] = useSyncedState<string>('namingPattern', '{Type}/{componentSetName}');
 
-  if (count !== 0) {
-    usePropertyMenu(
-      [
-        {
-          icon: `<svg width="22" height="15" viewBox="0 0 22 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path fill-rule="evenodd" clip-rule="evenodd" d="M11.9026 1.43168C12.1936 1.47564 12.4822 1.54098 12.7663 1.62777L12.7719 1.62949C14.0176 2.0114 15.109 2.78567 15.8858 3.83854L15.8918 3.84665C16.5473 4.73808 16.9484 5.78867 17.058 6.88508L14.0863 4.88858L13.3259 6.02047L17.3852 8.74774L17.9079 9.09894L18.2994 8.60571L21.0056 5.19662L19.9376 4.34879L18.3531 6.34479C18.3424 6.27511 18.3306 6.20563 18.3179 6.13636C18.1135 5.02233 17.6601 3.96334 16.9851 3.04274L16.9791 3.03462C16.0303 1.74427 14.6956 0.794984 13.1714 0.326388L13.1658 0.32466C12.8171 0.217755 12.4627 0.137298 12.1055 0.0832198C10.899 -0.0994351 9.66061 0.0188515 8.50099 0.435448L8.4947 0.437711C7.42511 0.823053 6.46311 1.44778 5.6774 2.25801C5.38576 2.55876 5.11841 2.88506 4.87886 3.23416C4.85856 3.26376 4.83845 3.29351 4.81854 3.32343L5.94262 4.08294L5.94802 4.07484C5.96253 4.0531 5.97717 4.03146 5.99195 4.00993C6.71697 2.95331 7.75331 2.15199 8.95541 1.72013L8.9617 1.71788C9.33245 1.58514 9.71301 1.48966 10.098 1.43156C10.6957 1.34135 11.3039 1.34123 11.9026 1.43168ZM3.70034 6.39429L0.994141 9.80338L2.06217 10.6512L3.64663 8.65521C3.65741 8.72489 3.66916 8.79437 3.68187 8.86364C3.88627 9.97767 4.33964 11.0367 5.01467 11.9573L5.02063 11.9654C5.96945 13.2557 7.30418 14.205 8.82835 14.6736L8.83398 14.6753C9.18281 14.7823 9.53732 14.8628 9.89464 14.9168C11.101 15.0994 12.3393 14.9811 13.4988 14.5646L13.5051 14.5623C14.5747 14.1769 15.5367 13.5522 16.3224 12.742C16.614 12.4413 16.8813 12.115 17.1209 11.7659C17.1412 11.7363 17.1613 11.7065 17.1812 11.6766L16.0571 10.9171L16.0518 10.9252C16.0372 10.9469 16.0225 10.9686 16.0078 10.9902C15.2827 12.0467 14.2464 12.848 13.0444 13.2799L13.0381 13.2821C12.6673 13.4149 12.2868 13.5103 11.9018 13.5684C11.3041 13.6587 10.6958 13.6588 10.0971 13.5683C9.8062 13.5244 9.51754 13.459 9.23347 13.3722L9.22784 13.3705C7.98212 12.9886 6.89078 12.2143 6.11393 11.1615L6.10795 11.1534C5.45247 10.2619 5.05138 9.21133 4.94181 8.11492L7.91342 10.1114L8.6739 8.97953L4.61459 6.25226L4.09188 5.90106L3.70034 6.39429Z" fill="white"/>
-          </svg>
-          `,
-          itemType: 'action',
-          propertyName: 'reset',
-          tooltip: 'Reset',
-        },
-      ],
-      () => {
-        setCount(0);
+  // Scan function - now also creates instances automatically
+  const handleScan = () => {
+    setIsScanning(true);
+    
+    try {
+      const result = findComponentSetsInParent();
+      setComponentSets(result.componentSets);
+      setComponents(result.components);
+      
+      // Get container name
+      const widgets = figma.currentPage.findAll(node => node.type === 'WIDGET');
+      let parentName = '';
+      if (widgets.length > 0) {
+        const parentNode = widgets[0].parent;
+        if (parentNode) {
+          parentName = parentNode.name;
+          setContainerName(parentName);
+        }
+      }
+      
+      if (result.components.length === 0) {
+        figma.notify('❌ No components found');
+        setIsScanning(false);
+      } else {
+        figma.notify(`✅ Found ${result.components.length} components in ${result.componentSets.length} ComponentSets`);
+        
+        console.log(`🔍 Scanned ${result.components.length} components in ${result.componentSets.length} ComponentSets`);
+        console.log(`📋 Components breakdown:`, result.components.reduce((acc, comp) => {
+          // Use the first variant property as the grouping key, or 'default' if none
+          const groupKey = Object.keys(comp.variantProperties).length > 0 
+            ? Object.entries(comp.variantProperties)[0].join('=')
+            : 'default';
+          acc[groupKey] = (acc[groupKey] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>));
+        
+        // Automatically create instances after scanning
+        Promise.resolve(createInstancesFromComponents(result.components, namingPattern))
+          .then(() => {
+            // Success handled in createInstancesFromComponents
+          })
+          .catch((error) => {
+            console.error('Failed to create instances:', error);
+            figma.notify(`❌ Failed to create instances: ${error}`);
+          })
+          .finally(() => {
+            setIsScanning(false);
+          });
+      }
+      
+    } catch (error) {
+      console.error('Scan failed:', error);
+      figma.notify(`❌ Scan failed: ${error}`);
+      setIsScanning(false);
+    }
+  };
+
+  // Reset function
+  const handleReset = () => {
+    setComponentSets([]);
+    setComponents([]);
+    setContainerName('');
+    
+    // Also remove exportSVG frame if it exists
+    const existingFrame = figma.currentPage.findOne(node => 
+      node.type === 'FRAME' && node.name === 'exportSVG'
+    ) as FrameNode;
+    
+    if (existingFrame) {
+      existingFrame.remove();
+      figma.notify('🗑️ Removed exportSVG frame');
+    }
+  };
+
+  // Property menu for actions (backup)
+  usePropertyMenu(
+    [
+      {
+        icon: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M8 1L8 15M1 8L15 8" stroke="white" stroke-width="2" stroke-linecap="round"/>
+        </svg>`,
+        itemType: 'action',
+        propertyName: 'scan',
+        tooltip: 'Scan icons and create instances',
       },
-    );
+      {
+        icon: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2 2L14 14M2 14L14 2" stroke="white" stroke-width="2" stroke-linecap="round"/>
+        </svg>`,
+        itemType: 'action',
+        propertyName: 'reset',
+        tooltip: 'Reset',
+      },
+    ],
+    (event) => {
+      if (event.propertyName === 'scan') {
+        handleScan();
+      } else if (event.propertyName === 'reset') {
+        handleReset();
+      }
+    },
+  );
+
+  // Group components by primary variant property
+  const componentsByVariant: Record<string, ComponentInfo[]> = {};
+  for (const component of components) {
+    // Use the first variant property as the grouping key, or 'default' if none
+    const groupKey = Object.keys(component.variantProperties).length > 0 
+      ? Object.entries(component.variantProperties)[0].join('=')
+      : 'default';
+    
+    if (!componentsByVariant[groupKey]) {
+      componentsByVariant[groupKey] = [];
+    }
+    componentsByVariant[groupKey].push(component);
   }
 
   return (
@@ -31,33 +387,119 @@ export const Widget = () => {
       cornerRadius={8}
       fill="#FFFFFF"
       padding={16}
-      spacing={8}
+      spacing={12}
       stroke="#E6E6E6"
-      verticalAlignItems="center"
+      direction="vertical"
+      width={300}
     >
-      <SVG
-        onClick={() => {
-          setCount(count - 1);
-        }}
-        src={`<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect width="30" height="30" rx="15" fill="white"/>
-        <rect x="7.5" y="14.0625" width="15" height="1.875" fill="black" fill-opacity="0.8"/>
-        <rect x="0.5" y="0.5" width="29" height="29" rx="14.5" stroke="black" stroke-opacity="0.1"/>
-        </svg>`}
-      />
-      <Text fontSize={32} horizontalAlignText="center" width={42}>
-        {count.toString()}
+      <Text fontSize={16} fontWeight="bold" fill="#000000" width={268}>
+        Component Scanner
       </Text>
-      <SVG
-        onClick={() => {
-          setCount(count + 1);
-        }}
-        src={`<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect width="30" height="30" rx="15" fill="white"/>
-        <path d="M15.9375 7.5H14.0625V14.0625H7.5V15.9375H14.0625V22.5H15.9375V15.9375H22.5V14.0625H15.9375V7.5Z" fill="black" fill-opacity="0.8"/>
-        <rect x="0.5" y="0.5" width="29" height="29" rx="14.5" stroke="black" stroke-opacity="0.1"/>
-        </svg>`}
-      />
+      
+      {/* Naming Pattern Input */}
+      <AutoLayout direction="vertical" spacing={4} width={268}>
+        <Text fontSize={12} fontWeight="medium" fill="#333333" width={268}>
+          Instance Naming Pattern:
+        </Text>
+        <Input
+          value={namingPattern}
+          onTextEditEnd={(e) => setNamingPattern(e.characters)}
+          placeholder="{type}/{componentSetName}"
+          fontSize={12}
+          fill="#000000"
+          width={268}
+          inputFrameProps={{
+            fill: "#FFFFFF",
+            stroke: "#E6E6E6",
+            cornerRadius: 4,
+            padding: { vertical: 6, horizontal: 8 }
+          }}
+        />
+        <Text fontSize={10} fill="#666666" width={268}>
+          Available: {"{componentSetName}"}, {"{type}"}, {"{size}"}, {"{allVariants}"}, etc.
+        </Text>
+      </AutoLayout>
+      
+      {/* Action Buttons */}
+      <AutoLayout spacing={8} direction="horizontal" width={268}>
+        <AutoLayout
+          onClick={handleScan}
+          cornerRadius={6}
+          fill={isScanning ? "#CCCCCC" : "#007AFF"}
+          padding={{ vertical: 8, horizontal: 16 }}
+          hoverStyle={{ fill: isScanning ? "#CCCCCC" : "#0056CC" }}
+        >
+          <Text fontSize={14} fill="#FFFFFF" fontWeight="medium">
+            {isScanning ? "Processing..." : (components.length > 0 ? "Retry" : "Scan icons")}
+          </Text>
+        </AutoLayout>
+        
+        {(componentSets.length > 0 || containerName) ? (
+          <AutoLayout
+            onClick={handleReset}
+            cornerRadius={6}
+            fill="#FF3B30"
+            padding={{ vertical: 8, horizontal: 16 }}
+            hoverStyle={{ fill: "#D70015" }}
+          >
+            <Text fontSize={14} fill="#FFFFFF" fontWeight="medium">
+              Reset
+            </Text>
+          </AutoLayout>
+        ) : null}
+      </AutoLayout>
+      
+      {isScanning ? (
+        <Text fontSize={14} fill="#666666" width={268}>
+          Processing...
+        </Text>
+      ) : null}
+
+      
+      {!isScanning && containerName ? (
+        <AutoLayout direction="vertical" spacing={8} width={268}>
+          <Text fontSize={14} fill="#333333" width={268}>
+            Container: {containerName.length > 25 ? containerName.substring(0, 25) + '...' : containerName}
+          </Text>
+          <Text fontSize={14} fill="#333333" width={268}>
+            ComponentSets: {componentSets.length}
+          </Text>
+          <Text fontSize={14} fill="#333333" width={268}>
+            Total Components: {components.length}
+          </Text>
+        </AutoLayout>
+      ) : null}
+      
+      {!isScanning && componentSets.length === 0 && !containerName ? (
+        <Text fontSize={14} fill="#666666" width={268}>
+          Click "Scan icons" to find ComponentSets and create instances
+        </Text>
+      ) : null}
+      
+      {!isScanning && Object.keys(componentsByVariant).length > 0 ? (
+        <AutoLayout direction="vertical" spacing={8} width={268}>
+          <Text fontSize={14} fontWeight="bold" fill="#000000" width={268}>
+            Components by Variant:
+          </Text>
+          {Object.entries(componentsByVariant).map(([variant, variantComponents]) => (
+            <AutoLayout key={variant} direction="vertical" spacing={4} width={268}>
+              <Text fontSize={12} fontWeight="bold" fill="#333333" width={268}>
+                {variant}: {variantComponents.length}
+              </Text>
+              {variantComponents.slice(0, 3).map((component) => (
+                <Text key={component.nodeId} fontSize={11} fill="#666666" width={268}>
+                  • {component.componentSetName.length > 30 ? component.componentSetName.substring(0, 30) + '...' : component.componentSetName}
+                </Text>
+              ))}
+              {variantComponents.length > 3 ? (
+                <Text fontSize={11} fill="#666666" width={268}>
+                  ... and {variantComponents.length - 3} more
+                </Text>
+              ) : null}
+            </AutoLayout>
+          ))}
+        </AutoLayout>
+      ) : null}
     </AutoLayout>
   );
 };

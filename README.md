@@ -1,53 +1,67 @@
-# Figma Widget Vite React TypeScript Template
+# SVG Export Prep Widget
 
-This project is a comprehensive template designed to help you create Figma widgets using **Vite**, **React**, and **TypeScript**. It provides a minimal setup with Hot Module Replacement (`HMR`) for a seamless development experience and includes a robust **ESLint** configuration to ensure code quality and consistency.
+A Figma Widget that scans ComponentSets in the parent container and automatically creates organized instances for easy SVG export preparation.
 
-## Features
+## 🚀 Features
 
-- **Vite for Fast Builds**: Utilizes Vite's build system for rapid development and production builds, tailored for React applications.
-- **React with TypeScript**: Leverages the power of React and TypeScript for developing Figma widgets, offering type safety and JSX support.
-- **ESLint Configured**: Comes pre-configured with ESLint, including rules for React, TypeScript, import order, and custom rules to ensure high-quality, maintainable code.
-- **Figma Plugin and Widget Typings**: Includes type definitions for developing Figma plugins and widgets, enabling IntelliSense and compile-time type checking.
-- **Custom JSX Factory for Figma Widgets**: Configures a custom JSX factory (`figma.widget.h`) and fragment factory (`figma.widget.Fragment`) to work seamlessly with Figma's widget API.
+- **Component Scanning**: Automatically scans ComponentSets in the parent container
+- **Instance Creation**: Creates instances of all found components with organized naming (`type/componentSetName`)
 
-## Getting Started
+## 📦 Installation
 
-**Clone the repository**:
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/dusskapark/svg-export-prep-widget.git
+   cd svg-export-prep-widget
+   ```
 
-```bash
-git clone https://github.com/mikhin/figma-widget-vite-react-typescript-template.git
+2. Install dependencies:
+   ```bash
+   pnpm install
+   ```
+
+3. Build the widget:
+   ```bash
+   pnpm run build
+   ```
+
+4. Import the widget in Figma:
+   - Open Figma
+   - Go to Widgets → Development → Import widget from manifest
+   - Select the `manifest.json` file from this project
+
+## 🎯 Usage
+
+1. **Place the Widget**: Add the widget to any frame or page containing ComponentSets
+2. **Scan Icons**: Click the "Scan icons" button to find all ComponentSets and create instances
+3. **View Results**: The widget will create an "exportSVG" frame with all component instances
+4. **Retry**: Use the "Retry" button to rescan and recreate instances
+5. **Reset**: Clear all data and remove the export frame
+
+## 🛠️ Development
+
+### Scripts
+- `pnpm run dev` - Start development server with watch mode
+- `pnpm run build` - Build for production
+
+### Project Structure
+```
+svg-export-prep-widget/
+├── src/
+│   └── main.tsx          # Main widget code
+├── dist/
+│   └── code.js           # Built widget code
+├── manifest.json         # Figma widget manifest
+├── package.json          # Dependencies and scripts
+├── tsconfig.json         # TypeScript configuration
+├── vite.config.ts        # Vite build configuration
+└── README.md            # This file
 ```
 
-Install dependencies:
+## 📝 License
 
-```bash
-pnpm install
-```
+This project is licensed under the MIT License.
 
-Start the development server:
+---
 
-```bash
-pnpm run dev
-```
-
-Build for production:
-
-```bash
-pnpm run build
-```
-
-## Project Structure
-
-- **`src/main.tsx`**: Entry point for the Figma widget. Contains JSX code for the widget UI.
-- **`vite.config.ts`**: Configuration file for Vite, including custom settings for building Figma widgets.
-- **`.eslintrc`**: Configuration file for ESLint, specifying rules and plugins for linting JavaScript/TypeScript code.
-
-## Counter Widget Example
-
-Included is a simple counter widget example demonstrating how to use React state, property menus, and Figma's widget API to create interactive widgets.
-
-## License
-
-This project is open-sourced under the MIT license. Feel free to fork, modify, and use it in your own projects.
-
-For more information on developing Figma plugins and widgets, visit the [Figma Developer Documentation](https://www.figma.com/widget-docs/).
+Built with ❤️ using Figma Widget API, React, TypeScript, and Vite.

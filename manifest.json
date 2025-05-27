@@ -1,6 +1,6 @@
 {
-  "name": "figma-widget-vite-react-typescript-template",
-  "id": "1344977028678332291",
+  "name": "SVG Export Prep Widget",
+  "id": "svg-export-prep-widget",
   "api": "1.0.0",
   "main": "dist/code.js",
   "capabilities": [],
