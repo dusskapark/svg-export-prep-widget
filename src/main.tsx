@@ -183,6 +183,23 @@ function createOrFindExportFrame(): Promise<FrameNode> {
   });
 }
 
+// Filter components to avoid duplicates based on naming pattern
+function filterUniqueComponents(components: ComponentInfo[], namingPattern: string): ComponentInfo[] {
+  const seenNames = new Set<string>();
+  const uniqueComponents: ComponentInfo[] = [];
+  
+  for (const component of components) {
+    const instanceName = generateInstanceName(component, namingPattern);
+    
+    if (!seenNames.has(instanceName)) {
+      seenNames.add(instanceName);
+      uniqueComponents.push(component);
+    }
+  }
+  
+  return uniqueComponents;
+}
+
 // Create instances from components
 function createInstancesFromComponents(components: ComponentInfo[], namingPattern: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -191,7 +208,10 @@ function createInstancesFromComponents(components: ComponentInfo[], namingPatter
         let createdCount = 0;
         const promises: Promise<void>[] = [];
         
-        for (const component of components) {
+        // Filter to get unique components based on naming pattern
+        const uniqueComponents = filterUniqueComponents(components, namingPattern);
+        
+        for (const component of uniqueComponents) {
           const promise = figma.getNodeByIdAsync(component.nodeId)
             .then((componentNode) => {
               if (componentNode && componentNode.type === 'COMPONENT') {
@@ -300,6 +320,10 @@ export const Widget = () => {
           acc[groupKey] = (acc[groupKey] || 0) + 1;
           return acc;
         }, {} as Record<string, number>));
+        
+        // Filter unique components before creating instances
+        const uniqueComponents = filterUniqueComponents(result.components, namingPattern);
+        console.log(`🎯 Creating ${uniqueComponents.length} unique instances (filtered from ${result.components.length} total components)`);
         
         // Automatically create instances after scanning
         Promise.resolve(createInstancesFromComponents(result.components, namingPattern))
