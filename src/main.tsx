@@ -283,7 +283,7 @@ export const Widget = () => {
   const [components, setComponents] = useSyncedState<ComponentInfo[]>('components', []);
   const [isScanning, setIsScanning] = useSyncedState<boolean>('isScanning', false);
   const [containerName, setContainerName] = useSyncedState<string>('containerName', '');
-  const [namingPattern, setNamingPattern] = useSyncedState<string>('namingPattern', '{Type}/{componentSetName}');
+  const [namingPattern, setNamingPattern] = useSyncedState<string>('namingPattern', '{Theme}/{componentSetName}');
 
   // Scan function - now also creates instances automatically
   const handleScan = () => {
